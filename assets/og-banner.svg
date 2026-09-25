@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="20%" r="90%">
+      <stop offset="0%" stop-color="#141936"/>
+      <stop offset="100%" stop-color="#06080F"/>
+    </radialGradient>
+    <linearGradient id="node" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#37E6FF"/>
+      <stop offset="100%" stop-color="#9B7BFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <g stroke="rgba(100,200,255,0.28)" stroke-width="1.5" fill="none">
+    <path d="M600 300 L420 180"/>
+    <path d="M600 300 L790 190"/>
+    <path d="M600 300 L440 430"/>
+    <path d="M600 300 L800 420"/>
+    <path d="M420 180 L250 230"/>
+    <path d="M790 190 L950 250"/>
+    <path d="M440 430 L280 470"/>
+    <path d="M800 420 L960 460"/>
+  </g>
+
+  <circle cx="600" cy="300" r="34" fill="url(#node)"/>
+  <circle cx="420" cy="180" r="14" fill="#FFC15E"/>
+  <circle cx="790" cy="190" r="13" fill="#4CE0A0"/>
+  <circle cx="440" cy="430" r="13" fill="#9B7BFF"/>
+  <circle cx="800" cy="420" r="15" fill="#37E6FF"/>
+  <circle cx="250" cy="230" r="7" fill="#FFC15E" opacity="0.8"/>
+  <circle cx="950" cy="250" r="6" fill="#4CE0A0" opacity="0.8"/>
+  <circle cx="280" cy="470" r="6" fill="#9B7BFF" opacity="0.8"/>
+  <circle cx="960" cy="460" r="7" fill="#37E6FF" opacity="0.8"/>
+
+  <text x="600" y="555" text-anchor="middle" font-family="Arial, sans-serif" font-size="54" font-weight="800" fill="#EAF1FF">Synapse</text>
+  <text x="600" y="592" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" font-style="italic" fill="#93A2C4">The living constellation of human knowledge</text>
+</svg>

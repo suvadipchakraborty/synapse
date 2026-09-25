@@ -1,0 +1,548 @@
+import { ConstellationGraph, colorForDomain } from "./graph.js";
+import { MOCK_TOPICS, SEED_SPARKS, mockSearch, mockGet, mockRandom } from "./mock-data.js";
+
+const MAILTO = "suvadipchakraborty@gmail.com";
+const API_BASE = "https://api.openalex.org/topics";
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const CACHE_PREFIX = "synapse:topic:";
+
+let offlineMode = false;
+let currentTopic = null;
+let savedIds = new Set(JSON.parse(localStorage.getItem("synapse:codex") || "[]"));
+let audioCtx = null;
+let soundOn = false;
+
+// ---------------------------------------------------------------- helpers
+
+function toast(msg, ms = 2200) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => (el.hidden = true), ms);
+}
+
+function vibrate(pattern) {
+  if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch (_) {} }
+}
+
+function playChime() {
+  if (!soundOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = "sine";
+    o.frequency.value = 1180;
+    g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.05, audioCtx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+    o.connect(g).connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.5);
+  } catch (_) {}
+}
+
+function fmtNum(n) {
+  if (n == null) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+  return String(n);
+}
+
+function cacheGet(id) {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + id);
+    if (!raw) return null;
+    const { t, data } = JSON.parse(raw);
+    if (Date.now() - t > CACHE_TTL_MS) { localStorage.removeItem(CACHE_PREFIX + id); return null; }
+    return data;
+  } catch (_) { return null; }
+}
+function cacheSet(id, data) {
+  try { localStorage.setItem(CACHE_PREFIX + id, JSON.stringify({ t: Date.now(), data })); } catch (_) {}
+}
+
+// ---------------------------------------------------------------- normalizing
+
+// Turns a raw OpenAlex (or mock) topic payload into the shape the rest of
+// the app relies on, and pre-resolves sibling display names either way.
+function normalizeTopic(raw) {
+  const siblings = (raw.siblings || []).map(s => {
+    if (typeof s === "string") {
+      const m = mockGet(s);
+      return m ? { id: m.id, display_name: m.display_name } : null;
+    }
+    return { id: s.id, display_name: s.display_name };
+  }).filter(Boolean);
+
+  return {
+    id: raw.id,
+    display_name: raw.display_name,
+    description: raw.description || "No description available for this topic yet.",
+    domain: raw.domain || { display_name: "Unclassified" },
+    field: raw.field || { display_name: "Unclassified" },
+    subfield: raw.subfield || { display_name: "Unclassified" },
+    works_count: raw.works_count ?? 0,
+    cited_by_count: raw.cited_by_count ?? 0,
+    siblings,
+  };
+}
+
+// ---------------------------------------------------------------- data layer
+
+async function apiSearch(query) {
+  const url = `${API_BASE}?search=${encodeURIComponent(query)}&per_page=8&mailto=${MAILTO}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("search failed");
+  const json = await res.json();
+  return json.results || [];
+}
+
+async function apiGetById(id) {
+  const bare = id.replace("https://openalex.org/", "");
+  const url = `${API_BASE}/${bare}?mailto=${MAILTO}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("fetch failed");
+  return res.json();
+}
+
+async function searchTopics(query) {
+  if (offlineMode) return mockSearch(query).map(normalizeTopic);
+  try {
+    const results = await apiSearch(query);
+    return results.map(normalizeTopic);
+  } catch (e) {
+    setOffline(true);
+    return mockSearch(query).map(normalizeTopic);
+  }
+}
+
+async function getTopicById(id) {
+  const cached = cacheGet(id);
+  if (cached) return normalizeTopic(cached);
+
+  if (offlineMode || id.startsWith("mock:")) {
+    const m = mockGet(id);
+    if (m) return normalizeTopic(m);
+  }
+  try {
+    const raw = await apiGetById(id);
+    cacheSet(id, raw);
+    return normalizeTopic(raw);
+  } catch (e) {
+    setOffline(true);
+    const m = mockGet(id);
+    if (m) return normalizeTopic(m);
+    throw e;
+  }
+}
+
+function setOffline(state) {
+  if (state && !offlineMode) toast("Network unreachable — exploring offline sample data");
+  offlineMode = state;
+}
+
+function randomTopic() {
+  if (offlineMode) return Promise.resolve(normalizeTopic(mockRandom()));
+  const pool = SEED_SPARKS.filter(s => s.query);
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  return searchTopics(pick.query).then(r => r[0] || normalizeTopic(mockRandom()));
+}
+
+// ---------------------------------------------------------------- graph building
+
+function buildGraphData(topic) {
+  const nodes = [];
+  const links = [];
+  const centerId = topic.id;
+
+  nodes.push({ id: centerId, label: topic.display_name, domain: topic.domain.display_name, r: 26, kind: "topic", ref: topic });
+
+  const taxo = [
+    { key: "domain", val: topic.domain, r: 16 },
+    { key: "field", val: topic.field, r: 15 },
+    { key: "subfield", val: topic.subfield, r: 14 },
+  ];
+  taxo.forEach(t => {
+    if (!t.val || !t.val.display_name) return;
+    const id = `taxo:${t.key}:${t.val.display_name}`;
+    if (nodes.find(n => n.id === id)) return;
+    nodes.push({ id, label: t.val.display_name, domain: topic.domain.display_name, r: t.r, kind: t.key, query: t.val.display_name });
+    links.push({ source: centerId, target: id, distance: 95 });
+  });
+
+  topic.siblings.slice(0, 8).forEach(s => {
+    if (nodes.find(n => n.id === s.id)) return;
+    nodes.push({ id: s.id, label: s.display_name, domain: topic.domain.display_name, r: 18, kind: "topic" });
+    links.push({ source: centerId, target: s.id, distance: 130 });
+  });
+
+  return { nodes, links, centerId };
+}
+
+// ---------------------------------------------------------------- rendering topic → UI
+
+function renderInspector(topic) {
+  currentTopic = topic;
+  document.getElementById("breadcrumbs").innerHTML =
+    [topic.domain.display_name, topic.field.display_name, topic.subfield.display_name]
+      .map(s => `<span>${escapeHtml(s)}</span>`).join('<span class="sep">›</span>');
+  document.getElementById("topicTitle").textContent = topic.display_name;
+  document.getElementById("metricWorks").textContent = fmtNum(topic.works_count);
+  document.getElementById("metricCites").textContent = fmtNum(topic.cited_by_count);
+  document.getElementById("topicDesc").textContent = topic.description;
+
+  const chipRow = document.getElementById("siblingChips");
+  chipRow.innerHTML = "";
+  topic.siblings.slice(0, 8).forEach(s => {
+    const chip = document.createElement("button");
+    chip.className = "chip";
+    chip.textContent = s.display_name;
+    chip.addEventListener("click", () => focusTopicById(s.id));
+    chipRow.appendChild(chip);
+  });
+
+  const oaId = topic.id.startsWith("mock:") ? null : topic.id.replace("https://openalex.org/", "");
+  const oaLink = document.getElementById("openAlexLink");
+  const scLink = document.getElementById("scholarLink");
+  if (oaId) {
+    oaLink.href = `https://openalex.org/${oaId}`;
+    oaLink.style.display = "";
+  } else {
+    oaLink.style.display = "none";
+  }
+  scLink.href = `https://scholar.google.com/scholar?q=${encodeURIComponent(topic.display_name)}`;
+
+  const starBtn = document.getElementById("starBtn");
+  const isSaved = savedIds.has(topic.id);
+  starBtn.setAttribute("aria-pressed", String(isSaved));
+  starBtn.querySelector("span").textContent = isSaved ? "Saved to Codex" : "Save to Codex";
+
+  openInspector("peek");
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function openInspector(mode) {
+  const insp = document.getElementById("inspector");
+  insp.classList.remove("peek", "open");
+  insp.classList.add(mode);
+  insp.setAttribute("aria-hidden", "false");
+}
+function closeInspector() {
+  const insp = document.getElementById("inspector");
+  insp.classList.remove("peek", "open");
+  insp.setAttribute("aria-hidden", "true");
+}
+
+// ---------------------------------------------------------------- core flow
+
+let graph;
+
+async function loadTopicAsCenter(topic, { spark = true } = {}) {
+  setLoading(true, `Charting ${topic.display_name}…`);
+  document.getElementById("emptyState").style.display = "none";
+  try {
+    const data = buildGraphData(topic);
+    graph.setData(data.nodes, data.links, data.centerId);
+    renderInspector(topic);
+    document.getElementById("searchInput").value = "";
+    hideSuggestions();
+    if (spark) { vibrate([15, 30]); playChime(); }
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function focusTopicById(id) {
+  try {
+    setLoading(true, "Blooming new cluster…");
+    const topic = await getTopicById(id);
+    await loadTopicAsCenter(topic);
+  } catch (e) {
+    toast("Couldn't load that topic — try again.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function focusTaxonomyNode(node) {
+  try {
+    setLoading(true, `Searching ${node.query}…`);
+    const results = await searchTopics(node.query);
+    if (results[0]) await loadTopicAsCenter(results[0]);
+    else toast("No topics found for that category.");
+  } catch (e) {
+    toast("Search failed — check your connection.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+function setLoading(state, label) {
+  const el = document.getElementById("loadingState");
+  el.hidden = !state;
+  if (label) document.getElementById("loadingLabel").textContent = label;
+}
+
+// ---------------------------------------------------------------- search UI
+
+let searchDebounce;
+const searchInput = document.getElementById("searchInput");
+const suggestionsEl = document.getElementById("suggestions");
+
+function hideSuggestions() { suggestionsEl.hidden = true; suggestionsEl.innerHTML = ""; }
+
+searchInput.addEventListener("input", () => {
+  clearTimeout(searchDebounce);
+  const q = searchInput.value.trim();
+  if (q.length < 2) { hideSuggestions(); return; }
+  searchDebounce = setTimeout(async () => {
+    const results = await searchTopics(q);
+    renderSuggestions(results);
+  }, 280);
+});
+
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    const first = suggestionsEl.querySelector(".suggestion-item");
+    if (first) first.click();
+  } else if (e.key === "Escape") {
+    searchInput.blur();
+    hideSuggestions();
+  }
+});
+
+function renderSuggestions(results) {
+  if (!results.length) { hideSuggestions(); return; }
+  suggestionsEl.innerHTML = "";
+  results.forEach(t => {
+    const div = document.createElement("div");
+    div.className = "suggestion-item";
+    div.setAttribute("role", "option");
+    div.innerHTML = `<span>${escapeHtml(t.display_name)}</span><span class="suggestion-meta">${escapeHtml(t.domain.display_name)}</span>`;
+    div.addEventListener("click", () => loadTopicAsCenter(t));
+    suggestionsEl.appendChild(div);
+  });
+  suggestionsEl.hidden = false;
+}
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".search-wrap")) hideSuggestions();
+});
+
+// ---------------------------------------------------------------- seed ticker
+
+function renderSeedTicker() {
+  const el = document.getElementById("seedTicker");
+  SEED_SPARKS.forEach(s => {
+    const pill = document.createElement("button");
+    pill.className = "seed-pill";
+    pill.textContent = s.label;
+    pill.addEventListener("click", async () => {
+      vibrate([8]);
+      setLoading(true, `Seeding ${s.label}…`);
+      try {
+        if (s.id) await loadTopicAsCenter(await getTopicById(s.id));
+        else {
+          const results = await searchTopics(s.query);
+          if (results[0]) await loadTopicAsCenter(results[0]);
+          else toast("Couldn't find that spark right now.");
+        }
+      } finally { setLoading(false); }
+    });
+    el.appendChild(pill);
+  });
+}
+
+// ---------------------------------------------------------------- inspector drag
+
+(function setupInspectorDrag() {
+  const insp = document.getElementById("inspector");
+  const handle = document.getElementById("inspectorHandle");
+  let startY = 0, startTranslate = 0, dragging = false;
+
+  function currentTranslatePx() {
+    const r = insp.getBoundingClientRect();
+    return r.top;
+  }
+  handle.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    startY = e.clientY;
+    startTranslate = currentTranslatePx();
+    insp.style.transition = "none";
+    handle.setPointerCapture(e.pointerId);
+  });
+  handle.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const dy = e.clientY - startY;
+    const winH = window.innerHeight;
+    const newTop = Math.max(winH * 0.18, Math.min(winH, startTranslate + dy));
+    insp.style.transform = `translateY(${newTop - (winH - insp.offsetHeight)}px)`;
+  });
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    insp.style.transition = "";
+    insp.style.transform = "";
+    const r = insp.getBoundingClientRect();
+    const winH = window.innerHeight;
+    const openThreshold = winH * 0.45;
+    if (r.top < openThreshold) openInspector("open");
+    else if (r.top > winH - 160) closeInspector();
+    else openInspector("peek");
+  }
+  handle.addEventListener("pointerup", endDrag);
+  handle.addEventListener("pointercancel", endDrag);
+})();
+
+// ---------------------------------------------------------------- dock + shortcuts
+
+document.getElementById("btnRecenter").addEventListener("click", () => { graph.recenter(); vibrate([8]); });
+
+document.getElementById("btnFreeze").addEventListener("click", () => {
+  const frozen = graph.toggleFreeze();
+  document.getElementById("freezeLabel").textContent = frozen ? "Play" : "Freeze";
+  document.getElementById("btnFreeze").classList.toggle("active-state", frozen);
+  vibrate([8]);
+});
+
+document.getElementById("btnShuffle").addEventListener("click", async () => {
+  vibrate([8]);
+  setLoading(true, "Sparking a random field…");
+  try { await loadTopicAsCenter(await randomTopic()); }
+  finally { setLoading(false); }
+});
+
+document.getElementById("btnCodex").addEventListener("click", openCodex);
+
+document.getElementById("starBtn").addEventListener("click", () => {
+  if (!currentTopic) return;
+  if (savedIds.has(currentTopic.id)) savedIds.delete(currentTopic.id);
+  else savedIds.add(currentTopic.id);
+  localStorage.setItem("synapse:codex", JSON.stringify([...savedIds]));
+  cacheSet(currentTopic.id, currentTopic);
+  renderInspector(currentTopic);
+  updateCodexCount();
+  vibrate([8]);
+});
+
+function updateCodexCount() {
+  document.getElementById("codexCount").textContent = savedIds.size ? `Codex (${savedIds.size})` : "Codex";
+}
+
+function openCodex() {
+  const modal = document.getElementById("codexModal");
+  const list = document.getElementById("codexList");
+  const empty = document.getElementById("codexEmpty");
+  list.innerHTML = "";
+  if (!savedIds.size) { empty.hidden = false; }
+  else {
+    empty.hidden = true;
+    [...savedIds].forEach(id => {
+      const cached = cacheGet(id) || mockGet(id);
+      const name = cached ? cached.display_name : id;
+      const domain = cached && cached.domain ? (cached.domain.display_name || cached.domain) : "";
+      const item = document.createElement("div");
+      item.className = "codex-item";
+      item.innerHTML = `<div><div class="codex-item-name">${escapeHtml(name)}</div><div class="codex-item-domain">${escapeHtml(domain)}</div></div>`;
+      const rm = document.createElement("button");
+      rm.className = "codex-remove"; rm.textContent = "×";
+      rm.addEventListener("click", (e) => { e.stopPropagation(); savedIds.delete(id); localStorage.setItem("synapse:codex", JSON.stringify([...savedIds])); updateCodexCount(); openCodex(); });
+      item.appendChild(rm);
+      item.addEventListener("click", () => { closeModal(modal); focusTopicById(id); });
+      list.appendChild(item);
+    });
+  }
+  modal.hidden = false;
+}
+
+function closeModal(m) { m.hidden = true; }
+document.querySelectorAll("[data-close]").forEach(btn => btn.addEventListener("click", (e) => closeModal(e.target.closest(".modal-backdrop"))));
+document.querySelectorAll(".modal-backdrop").forEach(m => m.addEventListener("click", (e) => { if (e.target === m) closeModal(m); }));
+
+document.getElementById("aboutBtn").addEventListener("click", () => (document.getElementById("aboutModal").hidden = false));
+document.getElementById("feedbackBtn").addEventListener("click", (e) => {
+  e.preventDefault();
+  window.location.href = `mailto:${MAILTO}?subject=${encodeURIComponent("Synapse feedback")}&body=${encodeURIComponent("Hi Suva,\n\n")}`;
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") { if (e.key === "Escape") e.target.blur(); return; }
+  if (e.key === "/") { e.preventDefault(); searchInput.focus(); }
+  else if (e.key === " ") { e.preventDefault(); document.getElementById("btnFreeze").click(); }
+  else if (e.key === "Escape") { closeInspector(); document.querySelectorAll(".modal-backdrop").forEach(closeModal); }
+  else if (e.key.toLowerCase() === "r") { document.getElementById("btnShuffle").click(); }
+  else if (e.key.toLowerCase() === "f") { document.getElementById("btnRecenter").click(); }
+});
+
+// ---------------------------------------------------------------- starfield background
+
+function initStardust() {
+  const canvas = document.getElementById("stardust");
+  const ctx = canvas.getContext("2d");
+  let stars = [];
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const count = Math.floor((canvas.width * canvas.height) / 9000);
+    stars = Array.from({ length: count }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: Math.random() * 1.2 + 0.2,
+      s: Math.random() * 0.15 + 0.02,
+      a: Math.random() * 0.6 + 0.2,
+    }));
+  }
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#fff";
+    stars.forEach(st => {
+      st.y += st.s;
+      if (st.y > canvas.height) st.y = 0;
+      ctx.globalAlpha = st.a;
+      ctx.beginPath();
+      ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(draw);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+  draw();
+}
+
+// ---------------------------------------------------------------- boot
+
+function initGraph() {
+  const svg = document.getElementById("graphSvg");
+  graph = new ConstellationGraph(svg, {
+    onNodeTap: (d) => {
+      vibrate([8]);
+      if (d.kind === "topic") focusTopicById(d.id);
+      else focusTaxonomyNode(d);
+    },
+    onBackgroundTap: () => closeInspector(),
+  });
+}
+
+function registerServiceWorker() {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+}
+
+(function boot() {
+  initStardust();
+  initGraph();
+  renderSeedTicker();
+  updateCodexCount();
+  registerServiceWorker();
+
+  // Quick connectivity probe so we fail over to mock data proactively.
+  fetch(`${API_BASE}?per_page=1&mailto=${MAILTO}`).catch(() => setOffline(true));
+})();
