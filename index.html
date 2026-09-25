@@ -96,8 +96,8 @@
 
   <!-- ===== Topic Inspector (bottom sheet) ===== -->
   <section id="inspector" class="inspector" aria-hidden="true">
-    <div class="inspector-handle" id="inspectorHandle"><span></span></div>
-    <div class="inspector-scroll">
+    <div class="inspector-drag-zone" id="inspectorDragZone">
+      <div class="inspector-handle" id="inspectorHandle"><span></span></div>
       <div class="inspector-head">
         <nav class="breadcrumbs" id="breadcrumbs"></nav>
         <h2 id="topicTitle"></h2>
@@ -106,7 +106,8 @@
           <div class="metric"><span class="metric-num" id="metricCites">—</span><span class="metric-label">citations</span></div>
         </div>
       </div>
-
+    </div>
+    <div class="inspector-scroll">
       <p class="topic-desc" id="topicDesc"></p>
 
       <div class="inspector-section">
@@ -155,6 +156,17 @@
     <h2 id="aboutTitle">Synapse</h2>
     <p class="about-tag">The living constellation of human knowledge.</p>
     <p class="about-body">Synapse turns any academic field into an explorable graph — built on open metadata from OpenAlex, rendered with a physics simulation, and designed to make discovery feel like drifting through a night sky of ideas.</p>
+
+    <div class="settings-block">
+      <h3>OpenAlex API key</h3>
+      <p class="settings-hint">OpenAlex now requires a free key for live search (since Feb 2026). Without one, Synapse falls back to a small offline sample. <a href="https://openalex.org/settings/api" target="_blank" rel="noopener">Get a free key ↗</a></p>
+      <div class="settings-row">
+        <input id="apiKeyInput" type="text" inputmode="text" autocomplete="off" placeholder="Paste your OpenAlex API key" aria-label="OpenAlex API key">
+        <button id="apiKeySave" class="pill-btn ghost">Save</button>
+      </div>
+      <p id="apiKeyStatus" class="settings-status" hidden></p>
+    </div>
+
     <p class="about-credit">Built by <strong>Suva</strong></p>
     <a class="pill-btn" id="feedbackBtn" href="#">Send feedback</a>
   </div>

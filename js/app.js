@@ -5,7 +5,21 @@ const MAILTO = "suvadipchakraborty@gmail.com";
 const API_BASE = "https://api.openalex.org/topics";
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_PREFIX = "synapse:topic:";
+const API_KEY_STORAGE = "synapse:apiKey";
 
+function getApiKey() {
+  try { return (localStorage.getItem(API_KEY_STORAGE) || "").trim(); } catch (_) { return ""; }
+}
+
+// Appended to every OpenAlex request. Since Feb 13 2026, OpenAlex requires a
+// free API key for all calls — without one, requests are heavily rate-limited
+// (or rejected outright) and the app silently falls back to offline sample data.
+function authParams() {
+  const key = getApiKey();
+  return key ? `&api_key=${encodeURIComponent(key)}` : "";
+}
+
+let missingKeyWarned = false;
 let offlineMode = false;
 let currentTopic = null;
 let savedIds = new Set(JSON.parse(localStorage.getItem("synapse:codex") || "[]"));
@@ -92,18 +106,26 @@ function normalizeTopic(raw) {
 // ---------------------------------------------------------------- data layer
 
 async function apiSearch(query) {
-  const url = `${API_BASE}?search=${encodeURIComponent(query)}&per_page=8&mailto=${MAILTO}`;
+  const url = `${API_BASE}?search=${encodeURIComponent(query)}&per_page=8&mailto=${MAILTO}${authParams()}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error("search failed");
+  if (!res.ok) {
+    const err = new Error("search failed");
+    err.status = res.status;
+    throw err;
+  }
   const json = await res.json();
   return json.results || [];
 }
 
 async function apiGetById(id) {
   const bare = id.replace("https://openalex.org/", "");
-  const url = `${API_BASE}/${bare}?mailto=${MAILTO}`;
+  const url = `${API_BASE}/${bare}?mailto=${MAILTO}${authParams()}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error("fetch failed");
+  if (!res.ok) {
+    const err = new Error("fetch failed");
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
@@ -113,7 +135,7 @@ async function searchTopics(query) {
     const results = await apiSearch(query);
     return results.map(normalizeTopic);
   } catch (e) {
-    setOffline(true);
+    setOffline(true, e);
     return mockSearch(query).map(normalizeTopic);
   }
 }
@@ -131,15 +153,23 @@ async function getTopicById(id) {
     cacheSet(id, raw);
     return normalizeTopic(raw);
   } catch (e) {
-    setOffline(true);
+    setOffline(true, e);
     const m = mockGet(id);
     if (m) return normalizeTopic(m);
     throw e;
   }
 }
 
-function setOffline(state) {
-  if (state && !offlineMode) toast("Network unreachable — exploring offline sample data");
+function setOffline(state, err) {
+  if (state && !offlineMode) {
+    const unauthorized = err && (err.status === 401 || err.status === 403 || err.status === 429);
+    if (unauthorized && !getApiKey() && !missingKeyWarned) {
+      missingKeyWarned = true;
+      toast("OpenAlex now needs a free API key — add yours in the ⓘ About panel", 4200);
+    } else {
+      toast("Network unreachable — exploring offline sample data");
+    }
+  }
   offlineMode = state;
 }
 
@@ -302,7 +332,7 @@ searchInput.addEventListener("input", () => {
   if (q.length < 2) { hideSuggestions(); return; }
   searchDebounce = setTimeout(async () => {
     const results = await searchTopics(q);
-    renderSuggestions(results);
+    renderSuggestions(results, q);
   }, 280);
 });
 
@@ -316,8 +346,16 @@ searchInput.addEventListener("keydown", (e) => {
   }
 });
 
-function renderSuggestions(results) {
-  if (!results.length) { hideSuggestions(); return; }
+function renderSuggestions(results, query) {
+  if (!results.length) {
+    // OpenAlex Topics is a fixed taxonomy of ~4,500 narrow research topics —
+    // broad umbrella terms (e.g. "data science") often have no topic of that
+    // exact name, even though closely related topics exist. Say so plainly
+    // instead of just going quiet, which reads as broken.
+    suggestionsEl.innerHTML = `<div class="suggestion-empty">No topic named "${escapeHtml(query)}" in OpenAlex's taxonomy. Try a narrower term, e.g. "data mining" or "big data analytics".</div>`;
+    suggestionsEl.hidden = false;
+    return;
+  }
   suggestionsEl.innerHTML = "";
   results.forEach(t => {
     const div = document.createElement("div");
@@ -362,41 +400,77 @@ function renderSeedTicker() {
 
 (function setupInspectorDrag() {
   const insp = document.getElementById("inspector");
-  const handle = document.getElementById("inspectorHandle");
-  let startY = 0, startTranslate = 0, dragging = false;
+  // The whole header (handle + breadcrumbs/title/metrics) is draggable, not
+  // just the tiny dot — that's the part still visible while "peeking", so a
+  // swipe anywhere on it should resize the sheet.
+  const zone = document.getElementById("inspectorDragZone");
 
-  function currentTranslatePx() {
-    const r = insp.getBoundingClientRect();
-    return r.top;
+  let dragging = false, moved = false;
+  let startY = 0, startTop = 0, dragTop = 0;
+  let lastY = 0, lastT = 0, velocity = 0;
+
+  function naturalTopPx() {
+    // Where the sheet's top edge sits with --sheet-y: 0 (fully open).
+    return Math.max(0, window.innerHeight - insp.offsetHeight);
   }
-  handle.addEventListener("pointerdown", (e) => {
-    dragging = true;
-    startY = e.clientY;
-    startTranslate = currentTranslatePx();
+  function openTopPx() { return naturalTopPx(); }
+  function peekTopPx() { return window.innerHeight - 128; }
+
+  function setDragY(px) { insp.style.setProperty("--sheet-y", `${px}px`); }
+  function clearDragY() { insp.style.removeProperty("--sheet-y"); }
+
+  zone.addEventListener("pointerdown", (e) => {
+    dragging = true; moved = false;
+    startY = e.clientY; lastY = e.clientY; lastT = e.timeStamp;
+    velocity = 0;
+    startTop = insp.getBoundingClientRect().top;
+    dragTop = startTop;
     insp.style.transition = "none";
-    handle.setPointerCapture(e.pointerId);
+    zone.setPointerCapture(e.pointerId);
   });
-  handle.addEventListener("pointermove", (e) => {
+
+  zone.addEventListener("pointermove", (e) => {
     if (!dragging) return;
     const dy = e.clientY - startY;
-    const winH = window.innerHeight;
-    const newTop = Math.max(winH * 0.18, Math.min(winH, startTranslate + dy));
-    insp.style.transform = `translateY(${newTop - (winH - insp.offsetHeight)}px)`;
+    if (Math.abs(dy) > 4) moved = true;
+
+    // Dragging only ever moves the sheet between "open" and "peek" — it
+    // never closes it, so an under-shot swipe can't accidentally dismiss
+    // the sheet instead of expanding it.
+    const top = openTopPx(), bottom = peekTopPx();
+    dragTop = Math.max(top, Math.min(bottom, startTop + dy));
+
+    const dt = e.timeStamp - lastT || 16;
+    velocity = (e.clientY - lastY) / dt; // px/ms, +down / -up
+    lastY = e.clientY; lastT = e.timeStamp;
+
+    setDragY(dragTop - naturalTopPx());
   });
+
   function endDrag(e) {
     if (!dragging) return;
     dragging = false;
     insp.style.transition = "";
-    insp.style.transform = "";
-    const r = insp.getBoundingClientRect();
-    const winH = window.innerHeight;
-    const openThreshold = winH * 0.45;
-    if (r.top < openThreshold) openInspector("open");
-    else if (r.top > winH - 160) closeInspector();
-    else openInspector("peek");
+    clearDragY();
+
+    if (!moved) {
+      // A tap on the handle/header toggles between peek and open.
+      openInspector(insp.classList.contains("open") ? "peek" : "open");
+      return;
+    }
+
+    const FLICK = 0.5; // px/ms — a decisive flick wins even over a short drag
+    let target;
+    if (velocity < -FLICK) target = "open";
+    else if (velocity > FLICK) target = "peek";
+    else {
+      const mid = (openTopPx() + peekTopPx()) / 2;
+      target = dragTop < mid ? "open" : "peek";
+    }
+    openInspector(target);
   }
-  handle.addEventListener("pointerup", endDrag);
-  handle.addEventListener("pointercancel", endDrag);
+  zone.addEventListener("pointerup", endDrag);
+  zone.addEventListener("pointercancel", endDrag);
 })();
 
 // ---------------------------------------------------------------- dock + shortcuts
@@ -464,7 +538,28 @@ function closeModal(m) { m.hidden = true; }
 document.querySelectorAll("[data-close]").forEach(btn => btn.addEventListener("click", (e) => closeModal(e.target.closest(".modal-backdrop"))));
 document.querySelectorAll(".modal-backdrop").forEach(m => m.addEventListener("click", (e) => { if (e.target === m) closeModal(m); }));
 
-document.getElementById("aboutBtn").addEventListener("click", () => (document.getElementById("aboutModal").hidden = false));
+document.getElementById("aboutBtn").addEventListener("click", () => {
+  document.getElementById("apiKeyInput").value = getApiKey();
+  document.getElementById("apiKeyStatus").hidden = true;
+  document.getElementById("aboutModal").hidden = false;
+});
+
+// ---------------------------------------------------------------- API key settings
+
+document.getElementById("apiKeySave").addEventListener("click", () => {
+  const input = document.getElementById("apiKeyInput");
+  const status = document.getElementById("apiKeyStatus");
+  const key = input.value.trim();
+  try {
+    if (key) localStorage.setItem(API_KEY_STORAGE, key);
+    else localStorage.removeItem(API_KEY_STORAGE);
+  } catch (_) {}
+  missingKeyWarned = false;
+  if (offlineMode && key) offlineMode = false; // give the real API another chance
+  status.textContent = key ? "Saved. Searches will now use your key." : "Cleared — using the small keyless demo quota.";
+  status.classList.toggle("is-success", !!key);
+  status.hidden = false;
+});
 
 // ---------------------------------------------------------------- install (Android/desktop prompt + iOS instructions)
 

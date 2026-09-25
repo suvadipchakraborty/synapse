@@ -93,6 +93,7 @@ body {
 .suggestion-item:last-child { border-bottom: none; }
 .suggestion-item:hover, .suggestion-item.active { background: rgba(55,230,255,.08); }
 .suggestion-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-faint); }
+.suggestion-empty { padding: 12px 14px; font-size: 12.5px; line-height: 1.5; color: var(--ink-dim); cursor: default; }
 
 .icon-btn {
   flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
@@ -173,20 +174,29 @@ body {
   backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
   border-top: 1px solid var(--line);
   border-radius: 22px 22px 0 0;
-  transform: translateY(100%);
+  --sheet-y: 100%;
+  transform: translateY(var(--sheet-y));
   transition: transform .38s cubic-bezier(.2,.9,.25,1);
   z-index: 25;
   max-height: 78dvh;
   display: flex; flex-direction: column;
   padding-bottom: var(--safe-bot);
 }
-.inspector.peek { transform: translateY(calc(100% - 128px)); }
-.inspector.open { transform: translateY(0); }
+.inspector.peek { --sheet-y: calc(100% - 128px); }
+.inspector.open { --sheet-y: 0%; }
 
-.inspector-handle { display: flex; justify-content: center; padding: 10px 0 4px; cursor: grab; touch-action: none; }
+/* Wraps the handle + title/breadcrumb/metrics block. This whole area (not
+   just the tiny dot) is the drag target, and it's the part still visible
+   when the sheet is "peeking", so a swipe anywhere on it resizes the sheet. */
+.inspector-drag-zone { touch-action: none; cursor: grab; flex-shrink: 0; }
+.inspector-drag-zone:active { cursor: grabbing; }
+
+.inspector-handle { display: flex; justify-content: center; padding: 14px 0 8px; }
 .inspector-handle span { width: 38px; height: 4px; border-radius: 999px; background: var(--ink-faint); opacity: .6; }
 
-.inspector-scroll { overflow-y: auto; padding: 4px 20px 22px; }
+.inspector-head { padding: 0 20px 14px; }
+
+.inspector-scroll { overflow-y: auto; padding: 0 20px 22px; }
 
 .breadcrumbs {
   font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-faint);
@@ -264,6 +274,20 @@ body {
 .about-credit strong { color: var(--domain-cs); }
 #feedbackBtn { display: block; text-align: center; }
 
+.settings-block { margin: 4px 0 18px; padding: 14px; border-radius: 14px; border: 1px solid var(--line); background: rgba(255,255,255,.03); }
+.settings-block h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); margin: 0 0 8px; font-weight: 600; }
+.settings-hint { font-size: 12px; line-height: 1.5; color: var(--ink-dim); margin: 0 0 10px; }
+.settings-hint a { color: var(--domain-cs); }
+.settings-row { display: flex; gap: 8px; }
+.settings-row input {
+  flex: 1; min-width: 0; padding: 9px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--ink);
+  font-size: 12.5px; font-family: var(--font-mono);
+}
+.settings-row input:focus { outline: none; border-color: rgba(55,230,255,.5); }
+.settings-status { font-size: 12px; margin: 8px 0 0; color: var(--ink-dim); }
+.settings-status.is-success { color: #6fe08a; }
+
 .install-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; font-size: 13.5px; color: var(--ink-dim); line-height: 1.5; }
 .install-steps strong { color: var(--ink); }
 .ios-share-glyph { display: inline-block; padding: 0 4px; }
@@ -291,8 +315,6 @@ button, input { font-family: inherit; }
 
 @media (min-width: 720px) {
   .search-wrap { max-width: 420px; }
-  .inspector { left: 50%; transform: translate(-50%, 100%); max-width: 520px; border-radius: 22px; bottom: 14px; }
-  .inspector.peek { transform: translate(-50%, calc(100% - 128px)); }
-  .inspector.open { transform: translate(-50%, 0); }
+  .inspector { left: 50%; transform: translate(-50%, var(--sheet-y)); max-width: 520px; border-radius: 22px; bottom: 14px; }
   .dock { max-width: 420px; left: 50%; transform: translateX(-50%); right: auto; }
 }
