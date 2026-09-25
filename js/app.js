@@ -465,6 +465,50 @@ document.querySelectorAll("[data-close]").forEach(btn => btn.addEventListener("c
 document.querySelectorAll(".modal-backdrop").forEach(m => m.addEventListener("click", (e) => { if (e.target === m) closeModal(m); }));
 
 document.getElementById("aboutBtn").addEventListener("click", () => (document.getElementById("aboutModal").hidden = false));
+
+// ---------------------------------------------------------------- install (Android/desktop prompt + iOS instructions)
+
+let deferredInstallPrompt = null;
+const installBtn = document.getElementById("installBtn");
+
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+function isIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+
+if (!isStandalone()) {
+  if (isIOS()) {
+    // iOS Safari has no beforeinstallprompt — show the button up front
+    // and point people to the manual Add to Home Screen flow.
+    installBtn.hidden = false;
+  }
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    installBtn.hidden = false;
+  });
+  window.addEventListener("appinstalled", () => {
+    installBtn.hidden = true;
+    deferredInstallPrompt = null;
+    toast("Synapse installed ✦");
+  });
+}
+
+installBtn.addEventListener("click", async () => {
+  vibrate([8]);
+  if (deferredInstallPrompt) {
+    deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    if (outcome === "accepted") installBtn.hidden = true;
+  } else if (isIOS()) {
+    document.getElementById("installModal").hidden = false;
+  } else {
+    toast("Use your browser's menu → \"Install app\" or \"Add to Home Screen\".");
+  }
+});
 document.getElementById("feedbackBtn").addEventListener("click", (e) => {
   e.preventDefault();
   window.location.href = `mailto:${MAILTO}?subject=${encodeURIComponent("Synapse feedback")}&body=${encodeURIComponent("Hi Suva,\n\n")}`;

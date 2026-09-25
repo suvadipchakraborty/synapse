@@ -9,6 +9,9 @@ const PRECACHE = [
   "./js/mock-data.js",
   "./assets/icon-192.svg",
   "./assets/icon-512.svg",
+  "./assets/icon-192.png",
+  "./assets/icon-512.png",
+  "./assets/og-banner.png",
 ];
 
 self.addEventListener("install", (event) => {

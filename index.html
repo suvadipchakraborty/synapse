@@ -6,17 +6,37 @@
 <title>Synapse — The living constellation of human knowledge</title>
 <meta name="description" content="Search any academic discipline and explore it as an interactive, physics-driven knowledge graph.">
 <meta name="theme-color" content="#06080F">
+<link rel="canonical" href="https://synapse.suvadipchakraborty.workers.dev/">
 
 <!-- Open Graph -->
 <meta property="og:title" content="Synapse — The living constellation of human knowledge">
 <meta property="og:description" content="Explore any academic field as a living, physics-driven knowledge graph, powered by OpenAlex.">
 <meta property="og:type" content="website">
-<meta property="og:image" content="assets/og-banner.svg">
-<meta name="twitter:card" content="summary_large_image">
+<meta property="og:url" content="https://synapse.suvadipchakraborty.workers.dev/">
+<meta property="og:site_name" content="Synapse">
+<meta property="og:image" content="https://synapse.suvadipchakraborty.workers.dev/assets/og-banner.png">
+<meta property="og:image:secure_url" content="https://synapse.suvadipchakraborty.workers.dev/assets/og-banner.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Synapse — the living constellation of human knowledge">
 
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="assets/icon-192.svg">
-<link rel="apple-touch-icon" href="assets/icon-192.svg">
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Synapse — The living constellation of human knowledge">
+<meta name="twitter:description" content="Explore any academic field as a living, physics-driven knowledge graph, powered by OpenAlex.">
+<meta name="twitter:image" content="https://synapse.suvadipchakraborty.workers.dev/assets/og-banner.png">
+
+<link rel="manifest" href="https://synapse.suvadipchakraborty.workers.dev/manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="https://synapse.suvadipchakraborty.workers.dev/assets/icon-192.png">
+<link rel="icon" type="image/svg+xml" href="https://synapse.suvadipchakraborty.workers.dev/assets/icon-192.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="https://synapse.suvadipchakraborty.workers.dev/assets/icon-192.png">
+
+<!-- iOS standalone home-screen app behavior -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Synapse">
+<meta name="mobile-web-app-capable" content="yes">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -42,6 +62,10 @@
              placeholder="Search a field of knowledge…" aria-label="Search academic topics">
       <div id="suggestions" class="suggestions" role="listbox" hidden></div>
     </div>
+
+    <button id="installBtn" class="icon-btn" aria-label="Install Synapse" title="Install app" hidden>
+      <svg viewBox="0 0 24 24" width="20" height="20"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+    </button>
 
     <button id="aboutBtn" class="icon-btn" aria-label="About Synapse" title="About">
       <svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><line x1="12" y1="11" x2="12" y2="17" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="7.5" r="1.1" fill="currentColor"/></svg>
@@ -133,6 +157,21 @@
     <p class="about-body">Synapse turns any academic field into an explorable graph — built on open metadata from OpenAlex, rendered with a physics simulation, and designed to make discovery feel like drifting through a night sky of ideas.</p>
     <p class="about-credit">Built by <strong>Suva</strong></p>
     <a class="pill-btn" id="feedbackBtn" href="#">Send feedback</a>
+  </div>
+</div>
+
+<!-- ===== iOS Install Instructions Modal ===== -->
+<div id="installModal" class="modal-backdrop" hidden>
+  <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="installTitle">
+    <button class="modal-close" data-close>×</button>
+    <p class="about-glyph">⤓</p>
+    <h2 id="installTitle">Install Synapse</h2>
+    <p class="about-tag">Add it to your home screen like a native app.</p>
+    <ol class="install-steps">
+      <li>Tap the <strong>Share</strong> icon <span class="ios-share-glyph">⬆</span> in Safari's toolbar.</li>
+      <li>Scroll down and choose <strong>Add to Home Screen</strong>.</li>
+      <li>Tap <strong>Add</strong> — Synapse now opens full-screen from your home screen.</li>
+    </ol>
   </div>
 </div>
 
