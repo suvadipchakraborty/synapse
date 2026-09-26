@@ -6,9 +6,15 @@ const API_BASE = "https://api.openalex.org/topics";
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_PREFIX = "synapse:topic:";
 const API_KEY_STORAGE = "synapse:apiKey";
+// Built-in fallback so search works out of the box; a key saved in the
+// About panel (stored per-device in localStorage) always takes priority.
+const DEFAULT_API_KEY = "yCJexcJhHoHqLfwEcs0ODu";
 
 function getApiKey() {
-  try { return (localStorage.getItem(API_KEY_STORAGE) || "").trim(); } catch (_) { return ""; }
+  try {
+    const stored = (localStorage.getItem(API_KEY_STORAGE) || "").trim();
+    return stored || DEFAULT_API_KEY;
+  } catch (_) { return DEFAULT_API_KEY; }
 }
 
 // Appended to every OpenAlex request. Since Feb 13 2026, OpenAlex requires a
@@ -163,9 +169,9 @@ async function getTopicById(id) {
 function setOffline(state, err) {
   if (state && !offlineMode) {
     const unauthorized = err && (err.status === 401 || err.status === 403 || err.status === 429);
-    if (unauthorized && !getApiKey() && !missingKeyWarned) {
+    if (unauthorized && !missingKeyWarned) {
       missingKeyWarned = true;
-      toast("OpenAlex now needs a free API key — add yours in the ⓘ About panel", 4200);
+      toast("OpenAlex rejected the API key — check it in the ⓘ About panel", 4200);
     } else {
       toast("Network unreachable — exploring offline sample data");
     }
@@ -555,9 +561,9 @@ document.getElementById("apiKeySave").addEventListener("click", () => {
     else localStorage.removeItem(API_KEY_STORAGE);
   } catch (_) {}
   missingKeyWarned = false;
-  if (offlineMode && key) offlineMode = false; // give the real API another chance
-  status.textContent = key ? "Saved. Searches will now use your key." : "Cleared — using the small keyless demo quota.";
-  status.classList.toggle("is-success", !!key);
+  offlineMode = false; // give the API another chance with the (new or default) key
+  status.textContent = key ? "Saved. Searches will now use this key." : "Reset to the app's built-in key.";
+  status.classList.toggle("is-success", true);
   status.hidden = false;
 });
 

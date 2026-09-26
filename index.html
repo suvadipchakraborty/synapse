@@ -159,9 +159,9 @@
 
     <div class="settings-block">
       <h3>OpenAlex API key</h3>
-      <p class="settings-hint">OpenAlex now requires a free key for live search (since Feb 2026). Without one, Synapse falls back to a small offline sample. <a href="https://openalex.org/settings/api" target="_blank" rel="noopener">Get a free key ↗</a></p>
+      <p class="settings-hint">Synapse ships with a built-in OpenAlex API key (required since Feb 2026). Paste your own here to use it instead. <a href="https://openalex.org/settings/api" target="_blank" rel="noopener">Get a free key ↗</a></p>
       <div class="settings-row">
-        <input id="apiKeyInput" type="text" inputmode="text" autocomplete="off" placeholder="Paste your OpenAlex API key" aria-label="OpenAlex API key">
+        <input id="apiKeyInput" type="text" inputmode="text" autocomplete="off" placeholder="OpenAlex API key" aria-label="OpenAlex API key">
         <button id="apiKeySave" class="pill-btn ghost">Save</button>
       </div>
       <p id="apiKeyStatus" class="settings-status" hidden></p>
